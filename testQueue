@@ -1,0 +1,151 @@
+#include "stdafx.h"
+#include <thread>
+#include<chrono>
+#define MAX_SIZE 512
+
+typedef struct tag_queue_st {
+		int front;
+		int rear;
+	    unsigned char data[MAX_SIZE];
+}queue_st;
+
+
+void Init_queue(queue_st * pQueue) {
+	pQueue->front = 0;
+	pQueue->rear =  0;
+}
+
+int ReadData(queue_st * pQueue, unsigned char *buf, int len) {
+	int rear = pQueue->rear;
+	int fornt = pQueue->front;
+	int avail = (rear - fornt+ MAX_SIZE)% MAX_SIZE - 10;
+	if (avail <= 0 || len <= 0) {
+		return 0;
+	}
+	
+	int readLen = len < avail ? len : avail;
+	
+	if (rear > fornt) {
+		memcpy(buf, &pQueue->data[fornt], readLen);
+	}
+	else {
+		int first = MAX_SIZE - fornt;
+		if (first > readLen) {
+			first = readLen;
+		}
+		memcpy(buf, &pQueue->data[fornt], first);
+
+		if (readLen - first > 0) {
+			memcpy(&buf[first], pQueue->data, readLen - first);
+		}
+		
+	}
+	pQueue->front = (pQueue->front + readLen)% MAX_SIZE;
+	return readLen;
+}
+
+int WriteData(queue_st * pQueue, unsigned char *buf, int len) {
+	int front = pQueue->front;
+	int remain = (front + MAX_SIZE - pQueue->rear);
+	int rear = pQueue->rear;
+	
+	if (remain > MAX_SIZE) remain = remain - MAX_SIZE;
+	remain = remain - 10;
+	if (remain <= 0 || len <= 0) return 0;
+	
+	int writelen = remain > len ? len : remain;
+	
+	if (front > rear) {
+		memcpy(&pQueue->data[rear], buf, writelen);
+	}else{
+		int first = MAX_SIZE - rear;
+		if (first > writelen) {
+			first = writelen;
+		}
+		memcpy(&pQueue->data[rear], buf, first);
+
+		if (writelen - first > 0) {
+			memcpy(pQueue->data, &buf[first], writelen - first);
+		}
+	}
+	pQueue->rear = (pQueue->rear + writelen)% MAX_SIZE;
+	return writelen;
+}
+
+void TestQ(queue_st * pQueue) {
+	int rear = pQueue->rear%MAX_SIZE;
+	int front = pQueue->front%MAX_SIZE;
+	int len = pQueue->rear - pQueue->front;
+	int lastv = 0;
+	for (int i = 0; i < len; i++) {
+		int cur = (i + front) % MAX_SIZE;
+		cur = pQueue->data[cur];
+		if (i > 0) {
+			if (cur - lastv != 1 && cur - lastv != -249) {
+				printf("error ***** lastv:%d, cur:%d\n", lastv, cur);
+			}
+		}
+		lastv = cur;
+	}
+}
+
+void testRead(queue_st * pQueue) {
+	unsigned char data[32];
+	int j = 0;
+	int lastv = -1;
+	while (1) {
+		int readSize = ReadData(pQueue, data, sizeof(data));
+		for (int i = 0; i < readSize; i++) {
+			printf(":%d", data[i]);
+			int diff = data[i] - lastv;
+			if (diff > 1 && diff != -250) {
+				printf("error ***** lastv:%d, cur:%d\n", lastv, data[i]);
+			}
+			lastv = data[i];
+		}
+		printf("\n");
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
+		//break;
+		if (j++ > 50)break;
+	}
+}
+
+void testWrite(queue_st * pQueue) {
+	unsigned char data[250];
+	int j = 0;
+
+	for (int i = 0; i < sizeof(data); i++) {
+		data[i] = i;
+	}
+
+	while (1) {
+		int total = sizeof(data);
+		int writeStart = 0;
+		while (total > 0) {
+			int writeSize = WriteData(pQueue, &data[writeStart], total);
+			total = total - writeSize;
+			writeStart += writeSize;
+			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+			TestQ(pQueue);
+			//testRead(pQueue);
+		}
+		
+		if (j++ > 30) {
+			break;
+		}
+	}
+}
+
+int main()
+{
+	queue_st testQueue;
+	Init_queue(&testQueue);
+	std::thread Tr(testRead, &testQueue);
+	std::thread Tw(testWrite, &testQueue);
+
+	Tr.join();
+	Tw.join();
+
+    return 0;
+}
+
